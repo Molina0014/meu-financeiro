@@ -1,0 +1,13 @@
+{
+    "name": "meu-financeiro",
+    "version": "1.0.0",
+    "description": "App de controle de finanças pessoais com API REST e Neon Postgres",
+    "scripts": {
+        "dev": "vercel dev"
+    },
+    "keywords": [],
+    "license": "ISC",
+    "dependencies": {
+        "@neondatabase/serverless": "^1.0.2"
+    }
+}
