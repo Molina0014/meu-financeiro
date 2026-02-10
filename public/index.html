@@ -1509,9 +1509,7 @@
                 if (category && category !== "all")
                     txs = txs.filter((t) => t.category === category);
                 return txs.sort(
-                    (a, b) =>
-                        b.date.localeCompare(a.date) ||
-                        b.id.localeCompare(a.id),
+                    (a, b) => b.date.localeCompare(a.date) || b.id - a.id,
                 );
             }
 
