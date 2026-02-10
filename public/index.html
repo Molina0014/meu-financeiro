@@ -975,6 +975,24 @@
                 );
             }
 
+            /* Delete button inside modal */
+            .tx-delete-modal-btn {
+                width: 100%;
+                padding: 14px;
+                border-radius: var(--radius-sm);
+                background: transparent;
+                color: var(--red);
+                border: 1.5px solid var(--red);
+                font-size: 14px;
+                font-weight: 700;
+                cursor: pointer;
+                transition: var(--transition);
+                margin-top: 10px;
+            }
+            .tx-delete-modal-btn:active {
+                background: var(--red-light);
+            }
+
             /* Delete button on swipe (shown on long press) */
             .tx-delete {
                 background: var(--red);
@@ -1284,6 +1302,15 @@
                     <button type="submit" class="form-submit">
                         Salvar transação
                     </button>
+                    <button
+                        type="button"
+                        class="tx-delete-modal-btn"
+                        id="tx-delete-btn"
+                        style="display: none"
+                        onclick="deleteTxFromModal()"
+                    >
+                        Excluir transação
+                    </button>
                 </form>
             </div>
         </div>
@@ -1370,6 +1397,7 @@
                 txType: "expense",
                 txCategory: "alimentacao",
                 goalCategory: "alimentacao",
+                editingTxId: null,
                 activePeriod: "month",
                 activeFilter: "all",
             };
@@ -1627,7 +1655,7 @@
             function txItemHTML(t) {
                 const cat = CATEGORIES[t.category] || CATEGORIES.outros;
                 const isExp = t.type === "expense";
-                return `<div class="tx-item" data-id="${t.id}" onclick="toggleDeleteTx(this)" ontouchstart="" >
+                return `<div class="tx-item" data-id="${t.id}" onclick="openTxModal(${t.id})">
     <div class="tx-icon cat-${t.category}">${cat.emoji}</div>
     <div class="tx-info">
       <div class="tx-name">${t.desc}</div>
@@ -1635,7 +1663,6 @@
     </div>
     <div class="tx-amount ${isExp ? "expense" : "income"}">${isExp ? "-" : "+"}${formatMoney(t.amount)}</div>
     <span class="tx-chevron">›</span>
-    <button class="tx-delete" onclick="event.stopPropagation();confirmDeleteTx(${t.id})">Excluir</button>
   </div>`;
             }
 
@@ -1839,13 +1866,35 @@
             // ========================
             // TRANSACTION MODAL
             // ========================
-            function openTxModal() {
-                state.txType = "expense";
-                state.txCategory = "alimentacao";
+            function openTxModal(id) {
                 document.getElementById("tx-form").reset();
-                document.getElementById("tx-date").value = new Date()
-                    .toISOString()
-                    .split("T")[0];
+                const tx = id
+                    ? state.transactions.find((t) => t.id === id)
+                    : null;
+                if (tx) {
+                    state.editingTxId = tx.id;
+                    state.txType = tx.type;
+                    state.txCategory = tx.category;
+                    document.getElementById("tx-value").value = tx.amount;
+                    document.getElementById("tx-desc").value = tx.desc;
+                    document.getElementById("tx-date").value = tx.date;
+                    document.querySelector(".modal-title").textContent =
+                        "Editar transação";
+                    document.getElementById("tx-delete-btn").style.display =
+                        "block";
+                } else {
+                    state.editingTxId = null;
+                    state.txType = "expense";
+                    state.txCategory = "alimentacao";
+                    document.getElementById("tx-date").value = new Date()
+                        .toISOString()
+                        .split("T")[0];
+                    document.querySelector(
+                        "#tx-modal .modal-title",
+                    ).textContent = "Nova transação";
+                    document.getElementById("tx-delete-btn").style.display =
+                        "none";
+                }
                 updateTxTypeUI();
                 renderTxCats();
                 document.getElementById("tx-modal").classList.add("active");
@@ -1901,23 +1950,46 @@
                 const date = document.getElementById("tx-date").value;
                 if (!amount || !desc || !date) return;
 
+                const payload = {
+                    type: state.txType,
+                    category: state.txCategory,
+                    description: desc,
+                    amount,
+                    date,
+                };
+
                 try {
-                    const row = await api("/api/transactions", {
-                        method: "POST",
-                        body: JSON.stringify({
-                            type: state.txType,
-                            category: state.txCategory,
-                            description: desc,
-                            amount,
-                            date,
-                        }),
-                    });
-                    state.transactions.unshift(mapTxFromApi(row));
+                    if (state.editingTxId) {
+                        const row = await api(
+                            "/api/transactions/" + state.editingTxId,
+                            {
+                                method: "PUT",
+                                body: JSON.stringify(payload),
+                            },
+                        );
+                        const updated = mapTxFromApi(row);
+                        state.transactions = state.transactions.map((t) =>
+                            t.id === updated.id ? updated : t,
+                        );
+                    } else {
+                        const row = await api("/api/transactions", {
+                            method: "POST",
+                            body: JSON.stringify(payload),
+                        });
+                        state.transactions.unshift(mapTxFromApi(row));
+                    }
                     closeTxModal();
                     renderCurrentScreen(getActiveTab());
                 } catch (err) {
                     alert("Erro ao salvar: " + err.message);
                 }
+            }
+
+            function deleteTxFromModal() {
+                const id = state.editingTxId;
+                if (!id) return;
+                closeTxModal();
+                confirmDeleteTx(id);
             }
 
             // ========================
