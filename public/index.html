@@ -605,6 +605,9 @@
             .alert-icon-success {
                 background: var(--green-light);
             }
+            .alert-icon-insight {
+                background: var(--purple-light);
+            }
             .alert-item-content {
                 flex: 1;
                 min-width: 0;
@@ -1482,6 +1485,27 @@
             <!-- ===== STATS SCREEN ===== -->
             <div class="screen" id="screen-stats">
                 <div class="screen-title">Estatísticas</div>
+                <div
+                    class="chart-card"
+                    id="insight-card"
+                    style="
+                        display: none;
+                        margin-bottom: 16px;
+                        border-left: 4px solid var(--purple);
+                    "
+                >
+                    <div class="chart-title" style="color: var(--purple)">
+                        Resumo do mês
+                    </div>
+                    <div
+                        id="insight-content"
+                        style="
+                            font-size: 13px;
+                            line-height: 1.5;
+                            color: var(--text-mid);
+                        "
+                    ></div>
+                </div>
                 <div class="stats-period">
                     <button
                         class="period-btn active"
@@ -2594,6 +2618,7 @@
                 renderChart();
                 renderCategoryStats();
                 renderComparison();
+                renderInsight();
             }
 
             function setPeriod(p) {
@@ -2848,6 +2873,94 @@
                     .join("");
             }
 
+            function renderInsight() {
+                const card = document.getElementById("insight-card");
+                const content = document.getElementById("insight-content");
+
+                // Check if there's an AI-generated insight in alerts
+                const insightAlert = state.alerts.find(
+                    (a) => a.type === "insight" && !a.read,
+                );
+                if (insightAlert) {
+                    card.style.display = "block";
+                    content.innerHTML = insightAlert.message.replace(
+                        /\n/g,
+                        "<br>",
+                    );
+                    return;
+                }
+
+                // Fallback: generate structured summary from local data
+                const now = new Date();
+                const monthTxs = state.transactions.filter((t) => {
+                    const d = new Date(t.date + "T12:00:00");
+                    return (
+                        d.getMonth() === now.getMonth() &&
+                        d.getFullYear() === now.getFullYear()
+                    );
+                });
+                const expenses = monthTxs.filter((t) => t.type === "expense");
+                const totalExpenses = expenses.reduce(
+                    (s, t) => s + t.amount,
+                    0,
+                );
+
+                if (!expenses.length) {
+                    card.style.display = "none";
+                    return;
+                }
+
+                // Top category
+                const catTotals = {};
+                expenses.forEach((t) => {
+                    catTotals[t.category] =
+                        (catTotals[t.category] || 0) + t.amount;
+                });
+                const topCat = Object.entries(catTotals).sort(
+                    (a, b) => b[1] - a[1],
+                )[0];
+                const catName = CATEGORIES[topCat[0]]
+                    ? CATEGORIES[topCat[0]].name
+                    : topCat[0];
+                const topPct = ((topCat[1] / totalExpenses) * 100).toFixed(0);
+
+                // Goals near limit
+                const nearGoals = state.goals.filter((g) => {
+                    const spent = expenses
+                        .filter((t) => t.category === g.category)
+                        .reduce((s, t) => s + t.amount, 0);
+                    return spent / g.limit >= 0.8;
+                });
+
+                // Recurring total
+                const recurTotal = expenses
+                    .filter((t) => t.is_recurring)
+                    .reduce((s, t) => s + t.amount, 0);
+
+                let lines = [];
+                lines.push(
+                    `Maior gasto: <strong>${catName}</strong> (${topPct}% das despesas, ${formatMoney(topCat[1])})`,
+                );
+                if (recurTotal > 0) {
+                    lines.push(
+                        `Gastos recorrentes: <strong>${formatMoney(recurTotal)}</strong>`,
+                    );
+                }
+                if (nearGoals.length) {
+                    const names = nearGoals.map((g) =>
+                        CATEGORIES[g.category]
+                            ? CATEGORIES[g.category].name
+                            : g.category,
+                    );
+                    lines.push(
+                        `Metas perto do limite: <strong>${names.join(", ")}</strong>`,
+                    );
+                }
+
+                card.style.display = "block";
+                content.innerHTML = lines.join("<br>");
+            }
+
             // ========================
             // ALERTS SCREEN
             // ========================
@@ -2875,6 +2988,7 @@
                     danger: "🚨",
                     info: "ℹ️",
                     success: "✅",
+                    insight: "🧠",
                 };
 
                 container.innerHTML = state.alerts
