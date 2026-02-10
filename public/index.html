@@ -438,11 +438,12 @@
             .chart-bars {
                 display: flex;
                 align-items: flex-end;
-                gap: 8px;
+                gap: 4px;
                 height: 140px;
                 padding-bottom: 24px;
                 position: relative;
                 border-bottom: 1px solid #eee;
+                overflow: hidden;
             }
             .chart-bar-group {
                 flex: 1;
@@ -455,8 +456,8 @@
                 justify-content: flex-end;
             }
             .chart-bar {
-                width: 28px;
-                border-radius: 6px 6px 2px 2px;
+                width: 20px;
+                border-radius: 5px 5px 2px 2px;
                 transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
                 position: relative;
             }
@@ -1379,13 +1380,15 @@
             const API = "";
 
             async function api(path, opts = {}) {
-                const res = await fetch(API + path, {
-                    headers: {
+                const fetchOpts = { ...opts };
+                // Só envia Content-Type em requests com body (POST/PUT)
+                if (opts.body) {
+                    fetchOpts.headers = {
                         "Content-Type": "application/json",
                         ...opts.headers,
-                    },
-                    ...opts,
-                });
+                    };
+                }
+                const res = await fetch(API + path, fetchOpts);
                 if (!res.ok) {
                     const body = await res.json().catch(() => ({}));
                     throw new Error(body.error || `Erro ${res.status}`);
@@ -1395,20 +1398,20 @@
 
             function mapTxFromApi(row) {
                 return {
-                    id: row.id,
+                    id: Number(row.id),
                     type: row.type,
                     category: row.category,
-                    desc: row.description,
-                    amount: row.amount,
-                    date: row.date,
+                    desc: row.description || "",
+                    amount: Number(row.amount),
+                    date: String(row.date),
                 };
             }
 
             function mapGoalFromApi(row) {
                 return {
-                    id: row.id,
+                    id: Number(row.id),
                     category: row.category,
-                    limit: row.monthly_limit,
+                    limit: Number(row.monthly_limit),
                 };
             }
 
@@ -1632,7 +1635,7 @@
     </div>
     <div class="tx-amount ${isExp ? "expense" : "income"}">${isExp ? "-" : "+"}${formatMoney(t.amount)}</div>
     <span class="tx-chevron">›</span>
-    <button class="tx-delete" onclick="event.stopPropagation();confirmDeleteTx('${t.id}')">Excluir</button>
+    <button class="tx-delete" onclick="event.stopPropagation();confirmDeleteTx(${t.id})">Excluir</button>
   </div>`;
             }
 
@@ -1826,7 +1829,7 @@
         <span>Restante: <strong>${formatMoney(remaining)}</strong></span>
       </div>
       <div style="text-align:right;margin-top:10px">
-        <button style="background:none;border:none;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;padding:4px 8px" onclick="confirmDeleteGoal('${g.id}')">Remover meta</button>
+        <button style="background:none;border:none;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;padding:4px 8px" onclick="confirmDeleteGoal(${g.id})">Remover meta</button>
       </div>
     </div>`;
                     })
@@ -2058,7 +2061,9 @@
             // ========================
             // INIT
             // ========================
-            loadState().then(() => renderHome());
+            loadState()
+                .then(() => renderHome())
+                .catch((e) => console.error("Erro ao inicializar:", e));
         </script>
     </body>
 </html>
