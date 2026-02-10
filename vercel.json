@@ -11,6 +11,10 @@
         {
             "source": "/api/accounts/:id",
             "destination": "/api/accounts?id=:id"
+        },
+        {
+            "source": "/api/alerts/:id",
+            "destination": "/api/alerts?id=:id"
         }
     ],
     "headers": [

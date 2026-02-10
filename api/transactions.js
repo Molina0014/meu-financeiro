@@ -165,6 +165,60 @@ module.exports = async function handler(req, res) {
                     txRecurrence,
                 ],
             );
+
+            // Auto-create alerts when goals hit 80% or 100%
+            if (type === "expense") {
+                try {
+                    const goals = await sql.query(
+                        `SELECT category, monthly_limit::float FROM goals WHERE category = $1`,
+                        [category],
+                    );
+                    if (goals.length) {
+                        const goal = goals[0];
+                        const now = new Date();
+                        const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+                        const spent = await sql.query(
+                            `SELECT COALESCE(SUM(amount), 0)::float as total FROM transactions
+                             WHERE type = 'expense' AND category = $1 AND to_char(date, 'YYYY-MM') = $2`,
+                            [category, monthStr],
+                        );
+                        const total = spent[0].total;
+                        const pct = (total / goal.monthly_limit) * 100;
+                        if (pct >= 100) {
+                            await sql.query(
+                                `INSERT INTO alerts (type, message, data) VALUES ($1, $2, $3)`,
+                                [
+                                    "danger",
+                                    `Meta de ${category} estourada! ${Math.round(pct)}% do limite usado.`,
+                                    JSON.stringify({
+                                        category,
+                                        pct: Math.round(pct),
+                                        limit: goal.monthly_limit,
+                                        spent: total,
+                                    }),
+                                ],
+                            );
+                        } else if (pct >= 80) {
+                            await sql.query(
+                                `INSERT INTO alerts (type, message, data) VALUES ($1, $2, $3)`,
+                                [
+                                    "warning",
+                                    `Meta de ${category} em ${Math.round(pct)}% do limite.`,
+                                    JSON.stringify({
+                                        category,
+                                        pct: Math.round(pct),
+                                        limit: goal.monthly_limit,
+                                        spent: total,
+                                    }),
+                                ],
+                            );
+                        }
+                    }
+                } catch (alertErr) {
+                    console.error("alert auto-create error:", alertErr);
+                }
+            }
+
             return res.status(201).json(rows[0]);
         }
 
