@@ -547,6 +547,64 @@
                 white-space: nowrap;
             }
 
+            /* Comparison card */
+            .comp-row {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 14px;
+            }
+            .comp-label {
+                width: 70px;
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--text-mid);
+                flex-shrink: 0;
+            }
+            .comp-bars {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+            .comp-bar {
+                height: 14px;
+                border-radius: 7px;
+                min-width: 2px;
+                transition: width 0.5s ease;
+            }
+            .comp-bar-current {
+                background: var(--navy);
+            }
+            .comp-bar-prev {
+                background: var(--navy-light);
+                opacity: 0.4;
+            }
+            .comp-value {
+                font-size: 12px;
+                font-weight: 700;
+                white-space: nowrap;
+                width: 75px;
+                text-align: right;
+                flex-shrink: 0;
+            }
+            .comp-legend {
+                display: flex;
+                justify-content: center;
+                gap: 16px;
+                margin-top: 4px;
+                font-size: 11px;
+                color: var(--text-light);
+            }
+            .comp-legend-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                display: inline-block;
+                margin-right: 4px;
+                vertical-align: middle;
+            }
+
             /* Goals screen */
             .goal-card {
                 background: var(--white);
@@ -1230,6 +1288,18 @@
                             ></div>
                         </div>
                     </div>
+                    <div
+                        id="variation-indicator"
+                        style="
+                            display: none;
+                            margin-top: 8px;
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: rgba(255, 255, 255, 0.85);
+                            position: relative;
+                            z-index: 1;
+                        "
+                    ></div>
                     <div class="hero-row">
                         <div class="hero-stat">
                             <div class="hero-stat-label">
@@ -1365,6 +1435,10 @@
                 <div class="chart-card">
                     <div class="chart-title">Gastos por categoria</div>
                     <div id="stats-categories"></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Comparativo mensal</div>
+                    <div id="stats-comparison"></div>
                 </div>
             </div>
 
@@ -1971,6 +2045,42 @@
                     budgetContainer.style.display = "none";
                 }
 
+                // Variation indicator (vs previous month)
+                const variationEl = document.getElementById(
+                    "variation-indicator",
+                );
+                const now = new Date();
+                const prevMonth = new Date(
+                    now.getFullYear(),
+                    now.getMonth() - 1,
+                    1,
+                );
+                const prevMonthTxs = state.transactions.filter((t) => {
+                    const d = new Date(t.date + "T12:00:00");
+                    return (
+                        d.getMonth() === prevMonth.getMonth() &&
+                        d.getFullYear() === prevMonth.getFullYear()
+                    );
+                });
+                const prevExpenses = prevMonthTxs
+                    .filter((t) => t.type === "expense")
+                    .reduce((s, t) => s + t.amount, 0);
+                if (prevExpenses > 0) {
+                    const variation =
+                        ((expenses - prevExpenses) / prevExpenses) * 100;
+                    const isUp = variation >= 0;
+                    variationEl.style.display = "block";
+                    variationEl.style.color = isUp ? "#ffcdd2" : "#c8e6c9";
+                    variationEl.textContent = `${isUp ? "\u25B2" : "\u25BC"} ${Math.abs(variation).toFixed(1)}% vs mês anterior`;
+                } else if (expenses > 0) {
+                    variationEl.style.display = "block";
+                    variationEl.style.color = "#ffcdd2";
+                    variationEl.textContent =
+                        "Sem dados do mês anterior para comparar";
+                } else {
+                    variationEl.style.display = "none";
+                }
+
                 // Quick categories - top 4 expense categories
                 const catTotals = {};
                 monthTxs
@@ -2214,6 +2324,7 @@
             function renderStats() {
                 renderChart();
                 renderCategoryStats();
+                renderComparison();
             }
 
             function setPeriod(p) {
@@ -2324,6 +2435,106 @@
     </div>`;
                     })
                     .join("");
+            }
+
+            function renderComparison() {
+                const container = document.getElementById("stats-comparison");
+                const now = new Date();
+                const curMonth = now.getMonth();
+                const curYear = now.getFullYear();
+                const prevDate = new Date(curYear, curMonth - 1, 1);
+                const prevMo = prevDate.getMonth();
+                const prevYr = prevDate.getFullYear();
+
+                const curTxs = state.transactions.filter((t) => {
+                    const d = new Date(t.date + "T12:00:00");
+                    return (
+                        d.getMonth() === curMonth && d.getFullYear() === curYear
+                    );
+                });
+                const prevTxs = state.transactions.filter((t) => {
+                    const d = new Date(t.date + "T12:00:00");
+                    return (
+                        d.getMonth() === prevMo && d.getFullYear() === prevYr
+                    );
+                });
+
+                const curIncome = curTxs
+                    .filter((t) => t.type === "income")
+                    .reduce((s, t) => s + t.amount, 0);
+                const curExpense = curTxs
+                    .filter((t) => t.type === "expense")
+                    .reduce((s, t) => s + t.amount, 0);
+                const prevIncome = prevTxs
+                    .filter((t) => t.type === "income")
+                    .reduce((s, t) => s + t.amount, 0);
+                const prevExpense = prevTxs
+                    .filter((t) => t.type === "expense")
+                    .reduce((s, t) => s + t.amount, 0);
+
+                if (prevExpense === 0 && prevIncome === 0) {
+                    container.innerHTML =
+                        '<div class="empty-state"><div class="empty-state-text">Sem dados do mês anterior</div></div>';
+                    return;
+                }
+
+                const maxVal = Math.max(
+                    curIncome,
+                    curExpense,
+                    prevIncome,
+                    prevExpense,
+                    1,
+                );
+
+                const curMonthLabel = now
+                    .toLocaleDateString("pt-BR", { month: "short" })
+                    .replace(".", "");
+                const prevMonthLabel = prevDate
+                    .toLocaleDateString("pt-BR", { month: "short" })
+                    .replace(".", "");
+
+                function compRow(label, curVal, prevVal, color) {
+                    const curW = Math.max(
+                        (curVal / maxVal) * 100,
+                        curVal > 0 ? 3 : 0,
+                    );
+                    const prevW = Math.max(
+                        (prevVal / maxVal) * 100,
+                        prevVal > 0 ? 3 : 0,
+                    );
+                    const diff =
+                        prevVal > 0
+                            ? (((curVal - prevVal) / prevVal) * 100).toFixed(1)
+                            : "—";
+                    const diffColor =
+                        label === "Despesas"
+                            ? curVal > prevVal
+                                ? "var(--red)"
+                                : "var(--green)"
+                            : curVal > prevVal
+                              ? "var(--green)"
+                              : "var(--red)";
+                    const diffStr =
+                        diff === "—"
+                            ? ""
+                            : `<span style="color:${diffColor};font-size:11px;font-weight:600">${curVal >= prevVal ? "+" : ""}${diff}%</span>`;
+                    return `<div class="comp-row">
+                        <div class="comp-label">${label}</div>
+                        <div class="comp-bars">
+                            <div class="comp-bar comp-bar-current" style="width:${curW}%;background:${color}"></div>
+                            <div class="comp-bar comp-bar-prev" style="width:${prevW}%;background:${color}"></div>
+                        </div>
+                        <div class="comp-value">${formatMoney(curVal)}<br>${formatMoney(prevVal)} ${diffStr}</div>
+                    </div>`;
+                }
+
+                container.innerHTML =
+                    compRow("Receitas", curIncome, prevIncome, "var(--green)") +
+                    compRow("Despesas", curExpense, prevExpense, "var(--red)") +
+                    `<div class="comp-legend">
+                        <span><span class="comp-legend-dot" style="background:var(--navy)"></span>${curMonthLabel} (atual)</span>
+                        <span><span class="comp-legend-dot" style="background:var(--navy);opacity:0.4"></span>${prevMonthLabel} (anterior)</span>
+                    </div>`;
             }
 
             // ========================
