@@ -779,6 +779,32 @@
                 color: var(--navy);
             }
 
+            /* Member toggle */
+            .member-toggle {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .member-btn {
+                padding: 8px 14px;
+                border-radius: 20px;
+                border: 1.5px solid #e8e4e0;
+                background: var(--white);
+                font-size: 13px;
+                font-weight: 600;
+                color: var(--text-mid);
+                cursor: pointer;
+                transition: var(--transition);
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+            .member-btn.active {
+                background: var(--navy);
+                color: white;
+                border-color: var(--navy);
+            }
+
             /* Search bar */
             .search-bar {
                 position: relative;
@@ -1121,6 +1147,11 @@
                     />
                 </div>
                 <div class="filter-bar" id="tx-filter-bar"></div>
+                <div
+                    class="filter-bar"
+                    id="tx-member-filter"
+                    style="margin-top: -8px"
+                ></div>
                 <div class="tx-list" id="all-tx-list"></div>
             </div>
 
@@ -1356,6 +1387,10 @@
                             required
                         />
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Quem gastou</label>
+                        <div class="member-toggle" id="tx-member-toggle"></div>
+                    </div>
                     <button type="submit" class="form-submit">
                         Salvar transação
                     </button>
@@ -1437,6 +1472,13 @@
                 outros: { name: "Outros", emoji: "📦", color: "#9e9e9e" },
             };
 
+            const MEMBERS = [
+                { key: "Eu", label: "Eu", emoji: "👤" },
+                { key: "Cônjuge", label: "Cônjuge", emoji: "👫" },
+                { key: "Filho(a)", label: "Filho(a)", emoji: "👦" },
+                { key: "Outro", label: "Outro", emoji: "👥" },
+            ];
+
             const EXPENSE_CATS = [
                 "alimentacao",
                 "transporte",
@@ -1458,6 +1500,8 @@
                 activePeriod: "month",
                 activeFilter: "all",
                 searchTerm: "",
+                txMember: "Eu",
+                activeMemberFilter: "all",
             };
 
             // ========================
@@ -1490,6 +1534,7 @@
                     desc: row.description || "",
                     amount: Number(row.amount),
                     date: String(row.date),
+                    member: row.member || "Eu",
                 };
             }
 
@@ -1713,11 +1758,13 @@
             function txItemHTML(t) {
                 const cat = CATEGORIES[t.category] || CATEGORIES.outros;
                 const isExp = t.type === "expense";
+                const memberLabel =
+                    t.member && t.member !== "Eu" ? ` · ${t.member}` : "";
                 return `<div class="tx-item" data-id="${t.id}" onclick="openTxModal(${t.id})">
     <div class="tx-icon cat-${t.category}">${cat.emoji}</div>
     <div class="tx-info">
       <div class="tx-name">${t.desc}</div>
-      <div class="tx-date">${formatDate(t.date)}</div>
+      <div class="tx-date">${formatDate(t.date)}${memberLabel}</div>
     </div>
     <div class="tx-amount ${isExp ? "expense" : "income"}">${isExp ? "-" : "+"}${formatMoney(t.amount)}</div>
     <span class="tx-chevron">›</span>
@@ -1747,6 +1794,17 @@
                     })
                     .join("");
 
+                // Member filter bar
+                const memberBar = document.getElementById("tx-member-filter");
+                memberBar.innerHTML = [
+                    { key: "all", label: "Todos", emoji: "" },
+                    ...MEMBERS,
+                ]
+                    .map((m) => {
+                        return `<button class="filter-chip ${state.activeMemberFilter === m.key ? "active" : ""}" onclick="setMemberFilter('${m.key}')">${m.emoji ? m.emoji + " " : ""}${m.label}</button>`;
+                    })
+                    .join("");
+
                 let txs = filterTx("all", state.activeFilter);
                 if (state.searchTerm) {
                     const term = state.searchTerm.toLowerCase();
@@ -1759,6 +1817,11 @@
                                     .includes(term)),
                     );
                 }
+                if (state.activeMemberFilter !== "all") {
+                    txs = txs.filter(
+                        (t) => t.member === state.activeMemberFilter,
+                    );
+                }
                 const txList = document.getElementById("all-tx-list");
                 if (txs.length) {
                     txList.innerHTML = txs.map((t) => txItemHTML(t)).join("");
@@ -1769,6 +1832,11 @@
 
             function setFilter(f) {
                 state.activeFilter = f;
+                renderTransactions();
+            }
+
+            function setMemberFilter(m) {
+                state.activeMemberFilter = m;
                 renderTransactions();
             }
 
@@ -1955,6 +2023,7 @@
                     state.editingTxId = tx.id;
                     state.txType = tx.type;
                     state.txCategory = tx.category;
+                    state.txMember = tx.member || "Eu";
                     document.getElementById("tx-value").value = tx.amount;
                     document.getElementById("tx-desc").value = tx.desc;
                     document.getElementById("tx-date").value = tx.date;
@@ -1966,6 +2035,7 @@
                     state.editingTxId = null;
                     state.txType = "expense";
                     state.txCategory = "alimentacao";
+                    state.txMember = "Eu";
                     document.getElementById("tx-date").value = new Date()
                         .toISOString()
                         .split("T")[0];
@@ -1977,6 +2047,7 @@
                 }
                 updateTxTypeUI();
                 renderTxCats();
+                renderTxMembers();
                 document.getElementById("tx-modal").classList.add("active");
             }
 
@@ -2021,6 +2092,15 @@
                     .join("");
             }
 
+            function renderTxMembers() {
+                document.getElementById("tx-member-toggle").innerHTML =
+                    MEMBERS.map((m) => {
+                        return `<button type="button" class="member-btn ${state.txMember === m.key ? "active" : ""}" onclick="state.txMember='${m.key}';renderTxMembers()">
+      ${m.emoji} ${m.label}
+    </button>`;
+                    }).join("");
+            }
+
             async function saveTx(e) {
                 e.preventDefault();
                 const amount = parseFloat(
@@ -2036,6 +2116,7 @@
                     description: desc,
                     amount,
                     date,
+                    member: state.txMember,
                 };
 
                 try {
