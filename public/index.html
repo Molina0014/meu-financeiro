@@ -1255,6 +1255,15 @@
                 </div>
                 <div class="quick-cats" id="home-quick-cats"></div>
 
+                <div
+                    class="section-header"
+                    id="accounts-section-header"
+                    style="display: none"
+                >
+                    <span class="section-title">Contas</span>
+                </div>
+                <div class="quick-cats" id="home-accounts"></div>
+
                 <div class="section-header">
                     <span class="section-title">Transações recentes</span>
                     <button
@@ -1559,6 +1568,10 @@
                             />
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Conta</label>
+                        <div class="member-toggle" id="tx-account-toggle"></div>
+                    </div>
                     <button type="submit" class="form-submit">
                         Salvar transação
                     </button>
@@ -1695,8 +1708,11 @@
                 searchTerm: "",
                 txMember: "Eu",
                 txTags: [],
+                txAccountId: null,
+                accounts: [],
                 activeMemberFilter: "all",
                 activeTagFilter: "",
+                activeAccountFilter: "all",
                 budgetLimit: null,
             };
 
@@ -1732,6 +1748,9 @@
                     date: String(row.date),
                     member: row.member || "Eu",
                     tags: Array.isArray(row.tags) ? row.tags : [],
+                    account_id: row.account_id ? Number(row.account_id) : null,
+                    account_name: row.account_name || null,
+                    account_icon: row.account_icon || null,
                 };
             }
 
@@ -1749,19 +1768,24 @@
             async function loadState() {
                 try {
                     const currentMonth = new Date().toISOString().slice(0, 7);
-                    const [txs, goals, budgetData] = await Promise.all([
-                        api("/api/transactions?limit=500"),
-                        api("/api/goals"),
-                        api("/api/budget?month=" + currentMonth).catch(
-                            () => null,
-                        ),
-                    ]);
+                    const [txs, goals, budgetData, accountsData] =
+                        await Promise.all([
+                            api("/api/transactions?limit=500"),
+                            api("/api/goals"),
+                            api("/api/budget?month=" + currentMonth).catch(
+                                () => null,
+                            ),
+                            api("/api/accounts").catch(() => []),
+                        ]);
                     state.transactions = txs.map(mapTxFromApi);
                     state.goals = goals.map(mapGoalFromApi);
                     state.budgetLimit =
                         budgetData && budgetData.total_limit
                             ? Number(budgetData.total_limit)
                             : null;
+                    state.accounts = Array.isArray(accountsData)
+                        ? accountsData
+                        : [];
                     // Salva cache local para fallback offline
                     localStorage.setItem(
                         "financeiro_cache",
@@ -1975,6 +1999,42 @@
                     qcContainer.innerHTML = "";
                 }
 
+                // Accounts section
+                const accHeader = document.getElementById(
+                    "accounts-section-header",
+                );
+                const accContainer = document.getElementById("home-accounts");
+                if (state.accounts.length) {
+                    accHeader.style.display = "flex";
+                    accContainer.innerHTML = state.accounts
+                        .map((acc) => {
+                            const accIncome = monthTxs
+                                .filter(
+                                    (t) =>
+                                        t.account_id === acc.id &&
+                                        t.type === "income",
+                                )
+                                .reduce((s, t) => s + t.amount, 0);
+                            const accExpense = monthTxs
+                                .filter(
+                                    (t) =>
+                                        t.account_id === acc.id &&
+                                        t.type === "expense",
+                                )
+                                .reduce((s, t) => s + t.amount, 0);
+                            const accBalance = accIncome - accExpense;
+                            return `<button class="quick-cat" style="background:${acc.color}15" onclick="switchTab('transactions');setTimeout(()=>setAccountFilter(${acc.id}),50)">
+        <div class="quick-cat-icon" style="background:${acc.color}30">${acc.icon}</div>
+        <div class="quick-cat-name">${acc.name}</div>
+        <div class="quick-cat-info">${formatMoney(accBalance)}</div>
+      </button>`;
+                        })
+                        .join("");
+                } else {
+                    accHeader.style.display = "none";
+                    accContainer.innerHTML = "";
+                }
+
                 // Recent transactions
                 const recent = filterTx("month").slice(0, 5);
                 const txList = document.getElementById("home-tx-list");
@@ -1992,6 +2052,9 @@
                 const isExp = t.type === "expense";
                 const memberLabel =
                     t.member && t.member !== "Eu" ? ` · ${t.member}` : "";
+                const accountLabel = t.account_icon
+                    ? ` · ${t.account_icon}`
+                    : "";
                 const tagsHTML =
                     t.tags && t.tags.length
                         ? `<div class="tx-tags">${t.tags.map((tag) => `<span class="tx-tag-badge">${tag}</span>`).join("")}</div>`
@@ -2000,7 +2063,7 @@
     <div class="tx-icon cat-${t.category}">${cat.emoji}</div>
     <div class="tx-info">
       <div class="tx-name">${t.desc}</div>
-      <div class="tx-date">${formatDate(t.date)}${memberLabel}</div>
+      <div class="tx-date">${formatDate(t.date)}${memberLabel}${accountLabel}</div>
       ${tagsHTML}
     </div>
     <div class="tx-amount ${isExp ? "expense" : "income"}">${isExp ? "-" : "+"}${formatMoney(t.amount)}</div>
@@ -2064,6 +2127,11 @@
                         (t) => t.tags && t.tags.includes(state.activeTagFilter),
                     );
                 }
+                if (state.activeAccountFilter !== "all") {
+                    txs = txs.filter(
+                        (t) => t.account_id === state.activeAccountFilter,
+                    );
+                }
 
                 // Tag filter bar (popular tags)
                 const tagCounts = {};
@@ -2109,6 +2177,11 @@
 
             function setTagFilter(tag) {
                 state.activeTagFilter = tag;
+                renderTransactions();
+            }
+
+            function setAccountFilter(accId) {
+                state.activeAccountFilter = accId;
                 renderTransactions();
             }
 
@@ -2297,6 +2370,7 @@
                     state.txCategory = tx.category;
                     state.txMember = tx.member || "Eu";
                     state.txTags = tx.tags ? [...tx.tags] : [];
+                    state.txAccountId = tx.account_id || null;
                     document.getElementById("tx-value").value = tx.amount;
                     document.getElementById("tx-desc").value = tx.desc;
                     document.getElementById("tx-date").value = tx.date;
@@ -2310,6 +2384,7 @@
                     state.txCategory = "alimentacao";
                     state.txMember = "Eu";
                     state.txTags = [];
+                    state.txAccountId = null;
                     document.getElementById("tx-date").value = new Date()
                         .toISOString()
                         .split("T")[0];
@@ -2323,6 +2398,7 @@
                 renderTxCats();
                 renderTxMembers();
                 renderTxTags();
+                renderTxAccounts();
                 document.getElementById("tx-tags-input").value = "";
                 document.getElementById("tx-modal").classList.add("active");
             }
@@ -2404,6 +2480,26 @@
                 renderTxTags();
             }
 
+            function renderTxAccounts() {
+                const container = document.getElementById("tx-account-toggle");
+                if (!state.accounts.length) {
+                    container.innerHTML =
+                        '<span style="color:var(--text-light);font-size:13px">Nenhuma conta cadastrada</span>';
+                    return;
+                }
+                container.innerHTML = [
+                    { id: null, icon: "—", name: "Nenhuma" },
+                    ...state.accounts,
+                ]
+                    .map((acc) => {
+                        const isActive = state.txAccountId === acc.id;
+                        return `<button type="button" class="member-btn ${isActive ? "active" : ""}" onclick="state.txAccountId=${acc.id};renderTxAccounts()">
+      ${acc.icon} ${acc.name}
+    </button>`;
+                    })
+                    .join("");
+            }
+
             async function saveTx(e) {
                 e.preventDefault();
                 const amount = parseFloat(
@@ -2421,6 +2517,7 @@
                     date,
                     member: state.txMember,
                     tags: state.txTags,
+                    account_id: state.txAccountId,
                 };
 
                 try {

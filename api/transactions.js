@@ -20,8 +20,8 @@ module.exports = async function handler(req, res) {
         if (req.method === "GET") {
             if (id) {
                 const rows = await sql.query(
-                    `SELECT id, type, category, description, amount::float, date::text, member, tags, created_at, updated_at
-           FROM transactions WHERE id = $1`,
+                    `SELECT t.id, t.type, t.category, t.description, t.amount::float, t.date::text, t.member, t.tags, t.account_id, a.name as account_name, a.icon as account_icon, t.created_at, t.updated_at
+           FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id WHERE t.id = $1`,
                     [id],
                 );
                 if (!rows.length)
@@ -41,6 +41,7 @@ module.exports = async function handler(req, res) {
                 search,
                 member,
                 tag,
+                account_id: qAccountId,
             } = req.query;
             const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
             const offset = parseInt(req.query.offset) || 0;
@@ -50,38 +51,42 @@ module.exports = async function handler(req, res) {
             let paramIdx = 1;
 
             if (type && VALID_TYPES.includes(type)) {
-                conditions.push(`type = $${paramIdx++}`);
+                conditions.push(`t.type = $${paramIdx++}`);
                 params.push(type);
             }
             if (category && VALID_CATEGORIES.includes(category)) {
-                conditions.push(`category = $${paramIdx++}`);
+                conditions.push(`t.category = $${paramIdx++}`);
                 params.push(category);
             }
             if (month && /^\d{4}-\d{2}$/.test(month)) {
                 conditions.push(
-                    `date_trunc('month', date) = $${paramIdx++}::date`,
+                    `date_trunc('month', t.date) = $${paramIdx++}::date`,
                 );
                 params.push(`${month}-01`);
             }
             if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) {
-                conditions.push(`date >= $${paramIdx++}::date`);
+                conditions.push(`t.date >= $${paramIdx++}::date`);
                 params.push(from);
             }
             if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) {
-                conditions.push(`date <= $${paramIdx++}::date`);
+                conditions.push(`t.date <= $${paramIdx++}::date`);
                 params.push(to);
             }
             if (search && search.trim()) {
-                conditions.push(`description ILIKE $${paramIdx++}`);
+                conditions.push(`t.description ILIKE $${paramIdx++}`);
                 params.push(`%${search.trim()}%`);
             }
             if (member && VALID_MEMBERS.includes(member)) {
-                conditions.push(`member = $${paramIdx++}`);
+                conditions.push(`t.member = $${paramIdx++}`);
                 params.push(member);
             }
             if (tag && tag.trim()) {
-                conditions.push(`$${paramIdx++} = ANY(tags)`);
+                conditions.push(`$${paramIdx++} = ANY(t.tags)`);
                 params.push(tag.trim());
+            }
+            if (qAccountId && /^\d+$/.test(qAccountId)) {
+                conditions.push(`t.account_id = $${paramIdx++}`);
+                params.push(parseInt(qAccountId));
             }
 
             const where = conditions.length
@@ -90,9 +95,9 @@ module.exports = async function handler(req, res) {
             const orderDir = sort === "asc" ? "ASC" : "DESC";
 
             const rows = await sql.query(
-                `SELECT id, type, category, description, amount::float, date::text, member, tags, created_at, updated_at
-         FROM transactions ${where}
-         ORDER BY date ${orderDir}, id DESC
+                `SELECT t.id, t.type, t.category, t.description, t.amount::float, t.date::text, t.member, t.tags, t.account_id, a.name as account_name, a.icon as account_icon, t.created_at, t.updated_at
+         FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id ${where}
+         ORDER BY t.date ${orderDir}, t.id DESC
          LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
                 [...params, limit, offset],
             );
@@ -101,8 +106,16 @@ module.exports = async function handler(req, res) {
 
         // POST /api/transactions
         if (req.method === "POST") {
-            const { type, category, amount, description, date, member, tags } =
-                req.body;
+            const {
+                type,
+                category,
+                amount,
+                description,
+                date,
+                member,
+                tags,
+                account_id,
+            } = req.body;
 
             if (!type || !VALID_TYPES.includes(type)) {
                 return res.status(400).json({
@@ -125,11 +138,12 @@ module.exports = async function handler(req, res) {
             const txTags = Array.isArray(tags)
                 ? tags.map((t) => String(t).trim()).filter(Boolean)
                 : [];
+            const txAccountId = account_id ? parseInt(account_id) : null;
 
             const rows = await sql.query(
-                `INSERT INTO transactions (type, category, description, amount, date, member, tags)
-         VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6, $7)
-         RETURNING id, type, category, description, amount::float, date::text, member, tags, created_at, updated_at`,
+                `INSERT INTO transactions (type, category, description, amount, date, member, tags, account_id)
+         VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6, $7, $8)
+         RETURNING id, type, category, description, amount::float, date::text, member, tags, account_id, created_at, updated_at`,
                 [
                     type,
                     category,
@@ -138,6 +152,7 @@ module.exports = async function handler(req, res) {
                     date || null,
                     txMember,
                     txTags,
+                    txAccountId,
                 ],
             );
             return res.status(201).json(rows[0]);
@@ -147,8 +162,16 @@ module.exports = async function handler(req, res) {
         if (req.method === "PUT") {
             if (!id) return res.status(400).json({ error: "id é obrigatório" });
 
-            const { type, category, amount, description, date, member, tags } =
-                req.body;
+            const {
+                type,
+                category,
+                amount,
+                description,
+                date,
+                member,
+                tags,
+                account_id,
+            } = req.body;
             const sets = [];
             const params = [];
             let paramIdx = 1;
@@ -193,6 +216,10 @@ module.exports = async function handler(req, res) {
                 sets.push(`tags = $${paramIdx++}`);
                 params.push(txTags);
             }
+            if (account_id !== undefined) {
+                sets.push(`account_id = $${paramIdx++}`);
+                params.push(account_id ? parseInt(account_id) : null);
+            }
 
             if (!sets.length)
                 return res
@@ -204,7 +231,7 @@ module.exports = async function handler(req, res) {
 
             const rows = await sql.query(
                 `UPDATE transactions SET ${sets.join(", ")} WHERE id = $${paramIdx}
-         RETURNING id, type, category, description, amount::float, date::text, member, created_at, updated_at`,
+         RETURNING id, type, category, description, amount::float, date::text, member, tags, account_id, created_at, updated_at`,
                 params,
             );
             if (!rows.length)
