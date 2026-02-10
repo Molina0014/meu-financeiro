@@ -20,7 +20,7 @@ module.exports = async function handler(req, res) {
         if (req.method === "GET") {
             if (id) {
                 const rows = await sql.query(
-                    `SELECT id, type, category, description, amount::float, date::text, member, created_at, updated_at
+                    `SELECT id, type, category, description, amount::float, date::text, member, tags, created_at, updated_at
            FROM transactions WHERE id = $1`,
                     [id],
                 );
@@ -31,8 +31,17 @@ module.exports = async function handler(req, res) {
                 return res.json(rows[0]);
             }
 
-            const { type, category, month, from, to, sort, search, member } =
-                req.query;
+            const {
+                type,
+                category,
+                month,
+                from,
+                to,
+                sort,
+                search,
+                member,
+                tag,
+            } = req.query;
             const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
             const offset = parseInt(req.query.offset) || 0;
 
@@ -70,6 +79,10 @@ module.exports = async function handler(req, res) {
                 conditions.push(`member = $${paramIdx++}`);
                 params.push(member);
             }
+            if (tag && tag.trim()) {
+                conditions.push(`$${paramIdx++} = ANY(tags)`);
+                params.push(tag.trim());
+            }
 
             const where = conditions.length
                 ? `WHERE ${conditions.join(" AND ")}`
@@ -77,7 +90,7 @@ module.exports = async function handler(req, res) {
             const orderDir = sort === "asc" ? "ASC" : "DESC";
 
             const rows = await sql.query(
-                `SELECT id, type, category, description, amount::float, date::text, member, created_at, updated_at
+                `SELECT id, type, category, description, amount::float, date::text, member, tags, created_at, updated_at
          FROM transactions ${where}
          ORDER BY date ${orderDir}, id DESC
          LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
@@ -88,7 +101,7 @@ module.exports = async function handler(req, res) {
 
         // POST /api/transactions
         if (req.method === "POST") {
-            const { type, category, amount, description, date, member } =
+            const { type, category, amount, description, date, member, tags } =
                 req.body;
 
             if (!type || !VALID_TYPES.includes(type)) {
@@ -109,11 +122,14 @@ module.exports = async function handler(req, res) {
             }
             const txMember =
                 member && VALID_MEMBERS.includes(member) ? member : "Eu";
+            const txTags = Array.isArray(tags)
+                ? tags.map((t) => String(t).trim()).filter(Boolean)
+                : [];
 
             const rows = await sql.query(
-                `INSERT INTO transactions (type, category, description, amount, date, member)
-         VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6)
-         RETURNING id, type, category, description, amount::float, date::text, member, created_at, updated_at`,
+                `INSERT INTO transactions (type, category, description, amount, date, member, tags)
+         VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6, $7)
+         RETURNING id, type, category, description, amount::float, date::text, member, tags, created_at, updated_at`,
                 [
                     type,
                     category,
@@ -121,6 +137,7 @@ module.exports = async function handler(req, res) {
                     numAmount,
                     date || null,
                     txMember,
+                    txTags,
                 ],
             );
             return res.status(201).json(rows[0]);
@@ -130,7 +147,7 @@ module.exports = async function handler(req, res) {
         if (req.method === "PUT") {
             if (!id) return res.status(400).json({ error: "id é obrigatório" });
 
-            const { type, category, amount, description, date, member } =
+            const { type, category, amount, description, date, member, tags } =
                 req.body;
             const sets = [];
             const params = [];
@@ -168,6 +185,13 @@ module.exports = async function handler(req, res) {
                     return res.status(400).json({ error: "member inválido" });
                 sets.push(`member = $${paramIdx++}`);
                 params.push(member);
+            }
+            if (tags !== undefined) {
+                const txTags = Array.isArray(tags)
+                    ? tags.map((t) => String(t).trim()).filter(Boolean)
+                    : [];
+                sets.push(`tags = $${paramIdx++}`);
+                params.push(txTags);
             }
 
             if (!sets.length)

@@ -851,6 +851,77 @@
                 border-color: var(--navy);
             }
 
+            /* Tags input */
+            .tags-input-container {
+                border: 1.5px solid #e8e4e0;
+                border-radius: var(--radius-sm);
+                padding: 8px 12px;
+                background: var(--cream);
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                align-items: center;
+                transition: var(--transition);
+            }
+            .tags-input-container:focus-within {
+                border-color: var(--navy);
+                background: white;
+            }
+            .tags-chips {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+            .tag-chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 4px 10px;
+                border-radius: 12px;
+                background: var(--navy);
+                color: white;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            .tag-chip-remove {
+                cursor: pointer;
+                font-size: 14px;
+                line-height: 1;
+                opacity: 0.7;
+            }
+            .tag-chip-remove:hover {
+                opacity: 1;
+            }
+            .tags-input {
+                border: none;
+                outline: none;
+                background: transparent;
+                font-size: 14px;
+                font-family: inherit;
+                color: var(--text-dark);
+                flex: 1;
+                min-width: 80px;
+                padding: 4px 0;
+            }
+            .tags-input::placeholder {
+                color: var(--text-light);
+            }
+            /* Tag badges in tx list */
+            .tx-tags {
+                display: flex;
+                gap: 4px;
+                flex-wrap: wrap;
+                margin-top: 3px;
+            }
+            .tx-tag-badge {
+                font-size: 10px;
+                padding: 1px 7px;
+                border-radius: 8px;
+                background: var(--purple-light);
+                color: var(--purple);
+                font-weight: 600;
+            }
+
             /* Search bar */
             .search-bar {
                 position: relative;
@@ -1228,6 +1299,11 @@
                     id="tx-member-filter"
                     style="margin-top: -8px"
                 ></div>
+                <div
+                    class="filter-bar"
+                    id="tx-tag-filter"
+                    style="margin-top: -8px"
+                ></div>
                 <div class="tx-list" id="all-tx-list"></div>
             </div>
 
@@ -1467,6 +1543,22 @@
                         <label class="form-label">Quem gastou</label>
                         <div class="member-toggle" id="tx-member-toggle"></div>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Tags</label>
+                        <div
+                            class="tags-input-container"
+                            id="tx-tags-container"
+                        >
+                            <div class="tags-chips" id="tx-tags-chips"></div>
+                            <input
+                                type="text"
+                                class="tags-input"
+                                id="tx-tags-input"
+                                placeholder="Digitar tag + Enter"
+                                onkeydown="onTagKeydown(event)"
+                            />
+                        </div>
+                    </div>
                     <button type="submit" class="form-submit">
                         Salvar transação
                     </button>
@@ -1602,7 +1694,9 @@
                 activeFilter: "all",
                 searchTerm: "",
                 txMember: "Eu",
+                txTags: [],
                 activeMemberFilter: "all",
+                activeTagFilter: "",
                 budgetLimit: null,
             };
 
@@ -1637,6 +1731,7 @@
                     amount: Number(row.amount),
                     date: String(row.date),
                     member: row.member || "Eu",
+                    tags: Array.isArray(row.tags) ? row.tags : [],
                 };
             }
 
@@ -1897,11 +1992,16 @@
                 const isExp = t.type === "expense";
                 const memberLabel =
                     t.member && t.member !== "Eu" ? ` · ${t.member}` : "";
+                const tagsHTML =
+                    t.tags && t.tags.length
+                        ? `<div class="tx-tags">${t.tags.map((tag) => `<span class="tx-tag-badge">${tag}</span>`).join("")}</div>`
+                        : "";
                 return `<div class="tx-item" data-id="${t.id}" onclick="openTxModal(${t.id})">
     <div class="tx-icon cat-${t.category}">${cat.emoji}</div>
     <div class="tx-info">
       <div class="tx-name">${t.desc}</div>
       <div class="tx-date">${formatDate(t.date)}${memberLabel}</div>
+      ${tagsHTML}
     </div>
     <div class="tx-amount ${isExp ? "expense" : "income"}">${isExp ? "-" : "+"}${formatMoney(t.amount)}</div>
     <span class="tx-chevron">›</span>
@@ -1959,6 +2059,36 @@
                         (t) => t.member === state.activeMemberFilter,
                     );
                 }
+                if (state.activeTagFilter) {
+                    txs = txs.filter(
+                        (t) => t.tags && t.tags.includes(state.activeTagFilter),
+                    );
+                }
+
+                // Tag filter bar (popular tags)
+                const tagCounts = {};
+                state.transactions.forEach((t) => {
+                    if (t.tags)
+                        t.tags.forEach((tag) => {
+                            tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                        });
+                });
+                const popularTags = Object.entries(tagCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 8);
+                const tagBar = document.getElementById("tx-tag-filter");
+                if (popularTags.length) {
+                    tagBar.innerHTML =
+                        `<button class="filter-chip ${!state.activeTagFilter ? "active" : ""}" onclick="setTagFilter('')">Todas</button>` +
+                        popularTags
+                            .map(([tag]) => {
+                                return `<button class="filter-chip ${state.activeTagFilter === tag ? "active" : ""}" onclick="setTagFilter('${tag}')">🏷️ ${tag}</button>`;
+                            })
+                            .join("");
+                } else {
+                    tagBar.innerHTML = "";
+                }
+
                 const txList = document.getElementById("all-tx-list");
                 if (txs.length) {
                     txList.innerHTML = txs.map((t) => txItemHTML(t)).join("");
@@ -1974,6 +2104,11 @@
 
             function setMemberFilter(m) {
                 state.activeMemberFilter = m;
+                renderTransactions();
+            }
+
+            function setTagFilter(tag) {
+                state.activeTagFilter = tag;
                 renderTransactions();
             }
 
@@ -2161,6 +2296,7 @@
                     state.txType = tx.type;
                     state.txCategory = tx.category;
                     state.txMember = tx.member || "Eu";
+                    state.txTags = tx.tags ? [...tx.tags] : [];
                     document.getElementById("tx-value").value = tx.amount;
                     document.getElementById("tx-desc").value = tx.desc;
                     document.getElementById("tx-date").value = tx.date;
@@ -2173,6 +2309,7 @@
                     state.txType = "expense";
                     state.txCategory = "alimentacao";
                     state.txMember = "Eu";
+                    state.txTags = [];
                     document.getElementById("tx-date").value = new Date()
                         .toISOString()
                         .split("T")[0];
@@ -2185,6 +2322,8 @@
                 updateTxTypeUI();
                 renderTxCats();
                 renderTxMembers();
+                renderTxTags();
+                document.getElementById("tx-tags-input").value = "";
                 document.getElementById("tx-modal").classList.add("active");
             }
 
@@ -2238,6 +2377,33 @@
                     }).join("");
             }
 
+            function renderTxTags() {
+                document.getElementById("tx-tags-chips").innerHTML =
+                    state.txTags
+                        .map((tag, i) => {
+                            return `<span class="tag-chip">${tag}<span class="tag-chip-remove" onclick="removeTag(${i})">×</span></span>`;
+                        })
+                        .join("");
+            }
+
+            function onTagKeydown(e) {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    const input = document.getElementById("tx-tags-input");
+                    const val = input.value.trim().toLowerCase();
+                    if (val && !state.txTags.includes(val)) {
+                        state.txTags.push(val);
+                        renderTxTags();
+                    }
+                    input.value = "";
+                }
+            }
+
+            function removeTag(i) {
+                state.txTags.splice(i, 1);
+                renderTxTags();
+            }
+
             async function saveTx(e) {
                 e.preventDefault();
                 const amount = parseFloat(
@@ -2254,6 +2420,7 @@
                     amount,
                     date,
                     member: state.txMember,
+                    tags: state.txTags,
                 };
 
                 try {
