@@ -779,6 +779,52 @@
                 color: var(--navy);
             }
 
+            /* Budget bar */
+            .budget-gear {
+                background: none;
+                border: none;
+                font-size: 18px;
+                cursor: pointer;
+                padding: 4px;
+                opacity: 0.7;
+                transition: var(--transition);
+            }
+            .budget-gear:active {
+                opacity: 1;
+                transform: scale(1.1);
+            }
+            .budget-bar-labels {
+                display: flex;
+                align-items: baseline;
+                gap: 4px;
+                margin-bottom: 6px;
+                font-size: 13px;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.85);
+            }
+            .budget-progress-bar {
+                height: 8px;
+                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.2);
+                overflow: hidden;
+            }
+            .budget-progress-fill {
+                height: 100%;
+                border-radius: 4px;
+                transition:
+                    width 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+                    background 0.3s;
+            }
+            .budget-fill-green {
+                background: #4caf50;
+            }
+            .budget-fill-yellow {
+                background: #ff9800;
+            }
+            .budget-fill-red {
+                background: #e53935;
+            }
+
             /* Member toggle */
             .member-toggle {
                 display: flex;
@@ -1081,8 +1127,38 @@
             <!-- ===== HOME SCREEN ===== -->
             <div class="screen active" id="screen-home">
                 <div class="hero-card animate-in">
-                    <div class="hero-label">Saldo atual</div>
+                    <div
+                        style="
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                        "
+                    >
+                        <div class="hero-label">Saldo atual</div>
+                        <button
+                            class="budget-gear"
+                            onclick="openBudgetModal()"
+                            title="Definir orçamento"
+                        >
+                            ⚙️
+                        </button>
+                    </div>
                     <div class="hero-amount" id="home-balance">R$ 0,00</div>
+                    <div
+                        id="budget-bar-container"
+                        style="display: none; margin-top: 14px"
+                    >
+                        <div class="budget-bar-labels">
+                            <span id="budget-spent-label">R$ 0</span>
+                            <span id="budget-limit-label">/ R$ 0</span>
+                        </div>
+                        <div class="budget-progress-bar">
+                            <div
+                                class="budget-progress-fill"
+                                id="budget-fill"
+                            ></div>
+                        </div>
+                    </div>
                     <div class="hero-row">
                         <div class="hero-stat">
                             <div class="hero-stat-label">
@@ -1436,6 +1512,31 @@
             </div>
         </div>
 
+        <!-- Budget Modal -->
+        <div class="modal-overlay" id="budget-modal">
+            <div class="modal">
+                <div class="modal-handle"></div>
+                <div class="modal-title">Orçamento mensal</div>
+                <form id="budget-form" onsubmit="saveBudget(event)">
+                    <div class="form-group">
+                        <label class="form-label">Limite de gastos (R$)</label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            min="1"
+                            class="form-input"
+                            id="budget-limit-input"
+                            placeholder="5000,00"
+                            required
+                        />
+                    </div>
+                    <button type="submit" class="form-submit">
+                        Salvar orçamento
+                    </button>
+                </form>
+            </div>
+        </div>
+
         <!-- Confirm dialog -->
         <div class="confirm-overlay" id="confirm-overlay">
             <div class="confirm-box">
@@ -1502,6 +1603,7 @@
                 searchTerm: "",
                 txMember: "Eu",
                 activeMemberFilter: "all",
+                budgetLimit: null,
             };
 
             // ========================
@@ -1551,12 +1653,20 @@
             // ========================
             async function loadState() {
                 try {
-                    const [txs, goals] = await Promise.all([
+                    const currentMonth = new Date().toISOString().slice(0, 7);
+                    const [txs, goals, budgetData] = await Promise.all([
                         api("/api/transactions?limit=500"),
                         api("/api/goals"),
+                        api("/api/budget?month=" + currentMonth).catch(
+                            () => null,
+                        ),
                     ]);
                     state.transactions = txs.map(mapTxFromApi);
                     state.goals = goals.map(mapGoalFromApi);
+                    state.budgetLimit =
+                        budgetData && budgetData.total_limit
+                            ? Number(budgetData.total_limit)
+                            : null;
                     // Salva cache local para fallback offline
                     localStorage.setItem(
                         "financeiro_cache",
@@ -1703,6 +1813,33 @@
                     formatMoney(income);
                 document.getElementById("home-expenses").textContent =
                     formatMoney(expenses);
+
+                // Budget bar
+                const budgetContainer = document.getElementById(
+                    "budget-bar-container",
+                );
+                if (state.budgetLimit) {
+                    budgetContainer.style.display = "block";
+                    const pct = Math.min(
+                        (expenses / state.budgetLimit) * 100,
+                        100,
+                    );
+                    document.getElementById("budget-spent-label").textContent =
+                        formatMoney(expenses);
+                    document.getElementById("budget-limit-label").textContent =
+                        "/ " + formatMoney(state.budgetLimit);
+                    const fill = document.getElementById("budget-fill");
+                    fill.style.width = pct + "%";
+                    fill.className =
+                        "budget-progress-fill " +
+                        (pct >= 90
+                            ? "budget-fill-red"
+                            : pct >= 70
+                              ? "budget-fill-yellow"
+                              : "budget-fill-green");
+                } else {
+                    budgetContainer.style.display = "none";
+                }
 
                 // Quick categories - top 4 expense categories
                 const catTotals = {};
@@ -2154,6 +2291,47 @@
             }
 
             // ========================
+            // BUDGET MODAL
+            // ========================
+            function openBudgetModal() {
+                document.getElementById("budget-form").reset();
+                if (state.budgetLimit) {
+                    document.getElementById("budget-limit-input").value =
+                        state.budgetLimit;
+                }
+                document.getElementById("budget-modal").classList.add("active");
+            }
+
+            function closeBudgetModal() {
+                document
+                    .getElementById("budget-modal")
+                    .classList.remove("active");
+            }
+
+            async function saveBudget(e) {
+                e.preventDefault();
+                const limit = parseFloat(
+                    document.getElementById("budget-limit-input").value,
+                );
+                if (!limit || limit <= 0) return;
+                const currentMonth = new Date().toISOString().slice(0, 7);
+                try {
+                    await api("/api/budget", {
+                        method: "POST",
+                        body: JSON.stringify({
+                            month: currentMonth,
+                            total_limit: limit,
+                        }),
+                    });
+                    state.budgetLimit = limit;
+                    closeBudgetModal();
+                    renderHome();
+                } catch (err) {
+                    alert("Erro ao salvar orçamento: " + err.message);
+                }
+            }
+
+            // ========================
             // GOAL MODAL
             // ========================
             function openGoalModal() {
@@ -2276,6 +2454,11 @@
                 .getElementById("goal-modal")
                 .addEventListener("click", function (e) {
                     if (e.target === this) closeGoalModal();
+                });
+            document
+                .getElementById("budget-modal")
+                .addEventListener("click", function (e) {
+                    if (e.target === this) closeBudgetModal();
                 });
             document
                 .getElementById("confirm-overlay")
