@@ -20,7 +20,7 @@ module.exports = async function handler(req, res) {
         if (req.method === "GET") {
             if (id) {
                 const rows = await sql.query(
-                    `SELECT t.id, t.type, t.category, t.description, t.amount::float, t.date::text, t.member, t.tags, t.account_id, a.name as account_name, a.icon as account_icon, t.created_at, t.updated_at
+                    `SELECT t.id, t.type, t.category, t.description, t.amount::float, t.date::text, t.member, t.tags, t.account_id, a.name as account_name, a.icon as account_icon, t.is_recurring, t.recurrence, t.created_at, t.updated_at
            FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id WHERE t.id = $1`,
                     [id],
                 );
@@ -95,7 +95,7 @@ module.exports = async function handler(req, res) {
             const orderDir = sort === "asc" ? "ASC" : "DESC";
 
             const rows = await sql.query(
-                `SELECT t.id, t.type, t.category, t.description, t.amount::float, t.date::text, t.member, t.tags, t.account_id, a.name as account_name, a.icon as account_icon, t.created_at, t.updated_at
+                `SELECT t.id, t.type, t.category, t.description, t.amount::float, t.date::text, t.member, t.tags, t.account_id, a.name as account_name, a.icon as account_icon, t.is_recurring, t.recurrence, t.created_at, t.updated_at
          FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id ${where}
          ORDER BY t.date ${orderDir}, t.id DESC
          LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
@@ -115,6 +115,8 @@ module.exports = async function handler(req, res) {
                 member,
                 tags,
                 account_id,
+                is_recurring,
+                recurrence,
             } = req.body;
 
             if (!type || !VALID_TYPES.includes(type)) {
@@ -139,11 +141,17 @@ module.exports = async function handler(req, res) {
                 ? tags.map((t) => String(t).trim()).filter(Boolean)
                 : [];
             const txAccountId = account_id ? parseInt(account_id) : null;
+            const txRecurring = is_recurring === true;
+            const txRecurrence = ["weekly", "monthly", "yearly"].includes(
+                recurrence,
+            )
+                ? recurrence
+                : null;
 
             const rows = await sql.query(
-                `INSERT INTO transactions (type, category, description, amount, date, member, tags, account_id)
-         VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6, $7, $8)
-         RETURNING id, type, category, description, amount::float, date::text, member, tags, account_id, created_at, updated_at`,
+                `INSERT INTO transactions (type, category, description, amount, date, member, tags, account_id, is_recurring, recurrence)
+         VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6, $7, $8, $9, $10)
+         RETURNING id, type, category, description, amount::float, date::text, member, tags, account_id, is_recurring, recurrence, created_at, updated_at`,
                 [
                     type,
                     category,
@@ -153,6 +161,8 @@ module.exports = async function handler(req, res) {
                     txMember,
                     txTags,
                     txAccountId,
+                    txRecurring,
+                    txRecurrence,
                 ],
             );
             return res.status(201).json(rows[0]);
@@ -171,6 +181,8 @@ module.exports = async function handler(req, res) {
                 member,
                 tags,
                 account_id,
+                is_recurring,
+                recurrence,
             } = req.body;
             const sets = [];
             const params = [];
@@ -220,6 +232,19 @@ module.exports = async function handler(req, res) {
                 sets.push(`account_id = $${paramIdx++}`);
                 params.push(account_id ? parseInt(account_id) : null);
             }
+            if (is_recurring !== undefined) {
+                sets.push(`is_recurring = $${paramIdx++}`);
+                params.push(is_recurring === true);
+            }
+            if (recurrence !== undefined) {
+                const validRec = ["weekly", "monthly", "yearly"].includes(
+                    recurrence,
+                )
+                    ? recurrence
+                    : null;
+                sets.push(`recurrence = $${paramIdx++}`);
+                params.push(validRec);
+            }
 
             if (!sets.length)
                 return res
@@ -231,7 +256,7 @@ module.exports = async function handler(req, res) {
 
             const rows = await sql.query(
                 `UPDATE transactions SET ${sets.join(", ")} WHERE id = $${paramIdx}
-         RETURNING id, type, category, description, amount::float, date::text, member, tags, account_id, created_at, updated_at`,
+         RETURNING id, type, category, description, amount::float, date::text, member, tags, account_id, is_recurring, recurrence, created_at, updated_at`,
                 params,
             );
             if (!rows.length)

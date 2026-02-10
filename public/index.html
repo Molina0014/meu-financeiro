@@ -1572,6 +1572,13 @@
                         <label class="form-label">Conta</label>
                         <div class="member-toggle" id="tx-account-toggle"></div>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Recorrente?</label>
+                        <div
+                            class="member-toggle"
+                            id="tx-recurring-toggle"
+                        ></div>
+                    </div>
                     <button type="submit" class="form-submit">
                         Salvar transação
                     </button>
@@ -1709,6 +1716,8 @@
                 txMember: "Eu",
                 txTags: [],
                 txAccountId: null,
+                txRecurring: false,
+                txRecurrence: null,
                 accounts: [],
                 activeMemberFilter: "all",
                 activeTagFilter: "",
@@ -1751,6 +1760,8 @@
                     account_id: row.account_id ? Number(row.account_id) : null,
                     account_name: row.account_name || null,
                     account_icon: row.account_icon || null,
+                    is_recurring: row.is_recurring || false,
+                    recurrence: row.recurrence || null,
                 };
             }
 
@@ -2055,6 +2066,7 @@
                 const accountLabel = t.account_icon
                     ? ` · ${t.account_icon}`
                     : "";
+                const recurLabel = t.is_recurring ? " 🔄" : "";
                 const tagsHTML =
                     t.tags && t.tags.length
                         ? `<div class="tx-tags">${t.tags.map((tag) => `<span class="tx-tag-badge">${tag}</span>`).join("")}</div>`
@@ -2063,7 +2075,7 @@
     <div class="tx-icon cat-${t.category}">${cat.emoji}</div>
     <div class="tx-info">
       <div class="tx-name">${t.desc}</div>
-      <div class="tx-date">${formatDate(t.date)}${memberLabel}${accountLabel}</div>
+      <div class="tx-date">${formatDate(t.date)}${memberLabel}${accountLabel}${recurLabel}</div>
       ${tagsHTML}
     </div>
     <div class="tx-amount ${isExp ? "expense" : "income"}">${isExp ? "-" : "+"}${formatMoney(t.amount)}</div>
@@ -2371,6 +2383,8 @@
                     state.txMember = tx.member || "Eu";
                     state.txTags = tx.tags ? [...tx.tags] : [];
                     state.txAccountId = tx.account_id || null;
+                    state.txRecurring = tx.is_recurring || false;
+                    state.txRecurrence = tx.recurrence || null;
                     document.getElementById("tx-value").value = tx.amount;
                     document.getElementById("tx-desc").value = tx.desc;
                     document.getElementById("tx-date").value = tx.date;
@@ -2385,6 +2399,8 @@
                     state.txMember = "Eu";
                     state.txTags = [];
                     state.txAccountId = null;
+                    state.txRecurring = false;
+                    state.txRecurrence = null;
                     document.getElementById("tx-date").value = new Date()
                         .toISOString()
                         .split("T")[0];
@@ -2399,6 +2415,7 @@
                 renderTxMembers();
                 renderTxTags();
                 renderTxAccounts();
+                renderTxRecurring();
                 document.getElementById("tx-tags-input").value = "";
                 document.getElementById("tx-modal").classList.add("active");
             }
@@ -2500,6 +2517,39 @@
                     .join("");
             }
 
+            function renderTxRecurring() {
+                const container = document.getElementById(
+                    "tx-recurring-toggle",
+                );
+                const RECURRENCE_OPTIONS = [
+                    { key: false, label: "Não" },
+                    { key: "weekly", label: "Semanal" },
+                    { key: "monthly", label: "Mensal" },
+                    { key: "yearly", label: "Anual" },
+                ];
+                container.innerHTML = RECURRENCE_OPTIONS.map((opt) => {
+                    const isActive =
+                        opt.key === false
+                            ? !state.txRecurring
+                            : state.txRecurring &&
+                              state.txRecurrence === opt.key;
+                    return `<button type="button" class="member-btn ${isActive ? "active" : ""}" onclick="setTxRecurrence(${opt.key === false ? "false" : "'" + opt.key + "'"})">
+      ${opt.key === false ? "❌" : "🔄"} ${opt.label}
+    </button>`;
+                }).join("");
+            }
+
+            function setTxRecurrence(val) {
+                if (val === false) {
+                    state.txRecurring = false;
+                    state.txRecurrence = null;
+                } else {
+                    state.txRecurring = true;
+                    state.txRecurrence = val;
+                }
+                renderTxRecurring();
+            }
+
             async function saveTx(e) {
                 e.preventDefault();
                 const amount = parseFloat(
@@ -2518,6 +2568,8 @@
                     member: state.txMember,
                     tags: state.txTags,
                     account_id: state.txAccountId,
+                    is_recurring: state.txRecurring,
+                    recurrence: state.txRecurrence,
                 };
 
                 try {
